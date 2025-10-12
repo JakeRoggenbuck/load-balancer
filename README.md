@@ -57,7 +57,7 @@ Send the response back the the clinet. E.g. a list of classes in JSON format.
 
 ## Design
 
-You can have an internal array of the "Application" struct. You can then use an iterator to choose what server to go with for each subsequent request.
+You can have an internal array of the "Application" struct. You can then use an iterator to choose what server to go with for each subsequent request. I will be making this in Go, because its a good language to use for making fast, concurrent, web systems.
 
 ```go
 type Application struct {
@@ -74,3 +74,17 @@ type Pool struct {
     Apps []Application
 }
 ```
+
+You can then set a time interval to check the health of each server. You send a "/health" request to the server and if it's alive, set the state to alive.
+
+You could remove an Application from the pool if it's not alive. You can have an alive pool and a dead pool move it from one to another.
+
+It feels more simple though to just save the alive or dead state in the Application struct itself. Both options are interesting and valid though.
+
+Also, if a request every fails because of a 500 or 400 error, you can just mark it as dead until it comes back alive if a later health check shows it's working.
+
+A 500 from a specific route could mean that either the entire application is broken and it should be marked as dead, or the specific request had trouble executing. This gives some nuance for if you should mark a server dead or not from a 500 error. If the health check gives a 500, definitely mark it as dead.
+
+Having a constant health check, you could also have a service that send an email or text for when an application is marked as dead. This can alert a team about an issue with one of the services.
+
+I've had a server break in the middle of the night during a low traffic day and time of the year, and despite a couple dozen people visiting the site and experiencing issues, no one sent us an email. Often times if that application is down during the day, people send us a message (usually a text from a friend).
