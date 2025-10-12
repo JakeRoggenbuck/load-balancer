@@ -34,6 +34,8 @@ port = "8000"
 tsl = false
 ```
 
+If you are using a domain name like `api.example.com`, you can set the port to "0" and set the IP to `api.example.com`.
+
 ### Running
 
 You can use docker to run this load balancer with the following commands:
