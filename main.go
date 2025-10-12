@@ -15,6 +15,16 @@ type Application struct {
 
 type Pool struct {
 	Applications []Application `toml:applications`
+	index        int
+}
+
+func (p *Pool) get_application() Application {
+	n := len(p.Applications)
+	app := p.Applications[p.index%n]
+
+	p.index += 1
+
+	return app
 }
 
 func main() {
@@ -29,4 +39,10 @@ func main() {
 	}
 
 	fmt.Println(pool)
+
+	for i := range 10 {
+		app := pool.get_application()
+
+		fmt.Println(i, app)
+	}
 }
