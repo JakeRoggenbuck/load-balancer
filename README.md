@@ -1,16 +1,50 @@
 # Load Balancer
 
-[![Build](https://img.shields.io/github/actions/workflow/status/JakeRoggenbuck/load-balancer/build.yml?branch=main&style=for-the-badge)](https://github.com/JakeRoggenbuck/load-balancer/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/JakeRoggenbuck/load-balancer/go.yml?branch=main&style=for-the-badge)](https://github.com/JakeRoggenbuck/load-balancer/actions)
 [![Go](https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://github.com/JakeRoggenbuck?tab=repositories&q=&type=&language=go&sort=stargazers)
 [![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white)](#)
 
-Load balancer for HTTP requests using round robin algorithm.
+Load balancer for HTTP requests using round robin algorithm written in Go.
 
-## Demo
+### Demo
 
 <img width="1896" height="1027" alt="2025-10-12_13-44" src="https://github.com/user-attachments/assets/54f67497-d368-41b8-b1fe-088a5003f170" />
 
 The load balancer is responding to requests and routing them to two different FastAPI servers and then returning their responses.
+
+### Config
+
+The load-balancer uses a TOML config to define infrastructure.
+
+The values are `alive` which tells the load-balancer if the application is alive or not. You can default it to alive or dead on startup. You can set the `ip` of the application as well as the `port` as you'd expect. The `tsl` option is to help with local testing. This load balancer does not care if you use tls or not, so you can still use it for local host apps that do not have HTTPS yet.
+
+This is all written to `applications.toml` in the directory that the load balancer is running.
+
+```toml
+[[applications]]
+alive = true
+ip = "127.0.0.1"
+port = "8001"
+tsl = false
+
+[[applications]]
+alive = true
+ip = "127.0.0.1"
+port = "8000"
+tsl = false
+```
+
+### Running
+
+You can use docker to run this load balancer with the following commands:
+
+```sh
+# Build the image
+docker build -t load-balancer:latest .
+
+# Run the image
+docker run -p 8080:8080 load-balancer:latest
+```
 
 ### Initial Ideas
 
