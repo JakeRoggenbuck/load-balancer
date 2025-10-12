@@ -1,6 +1,6 @@
 # Load Balancer
 
-[![Build](https://img.shields.io/github/actions/workflow/status/JakeRoggenbuck/load-balancer/build.yml?branch=main&style=for-the-badge)](https://github.com/JakeRoggenbuck/load-balancer/actions)
+[![Build](https://img.shields.io/github/actions/workflow/status/JakeRoggenbuck/load-balancer/go.yml?branch=main&style=for-the-badge)](https://github.com/JakeRoggenbuck/load-balancer/actions)
 [![Go](https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white)](https://github.com/JakeRoggenbuck?tab=repositories&q=&type=&language=go&sort=stargazers)
 [![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white)](#)
 
