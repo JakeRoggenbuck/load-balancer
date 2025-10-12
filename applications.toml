@@ -1,0 +1,9 @@
+[[applications]]
+alive = true
+ip = "192.168.1.10"
+port = 8080
+
+[[applications]]
+alive = true
+ip = "192.168.1.11"
+port = 8081
