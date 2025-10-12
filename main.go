@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/BurntSushi/toml"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -13,7 +14,19 @@ var POOL Pool
 type Application struct {
 	Alive bool
 	IP    string
-	Port  int
+	Port  string
+	TLS   bool
+}
+
+func (a *Application) Url() string {
+	var proto string
+	if a.TLS {
+		proto = "https://"
+	} else {
+		proto = "http://"
+	}
+
+	return proto + a.IP + ":" + a.Port
 }
 
 type Pool struct {
@@ -21,7 +34,7 @@ type Pool struct {
 	index        int
 }
 
-func (p *Pool) get_application() Application {
+func (p *Pool) GetApplication() Application {
 	n := len(p.Applications)
 	app := p.Applications[p.index%n]
 
@@ -35,8 +48,31 @@ func universalHandler(w http.ResponseWriter, r *http.Request) {
 	// I can then call my own requests to applications
 	fmt.Printf("Received request: %s %s\n", r.Method, r.URL.Path)
 
-	app := POOL.get_application()
+	app := POOL.GetApplication()
 	fmt.Println(app)
+
+	if r.Method == "GET" {
+		resource := app.Url() + r.URL.Path
+
+		fmt.Printf("Calling \"%v\"\n", resource)
+
+		resp, err := http.Get(resource)
+
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("Error reading body:", err)
+			return
+		}
+
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
+	}
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Handled: %s", r.URL.Path)
