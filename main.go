@@ -26,6 +26,10 @@ func (a *Application) Url() string {
 		proto = "http://"
 	}
 
+	if a.Port == "0" {
+		return proto + a.IP
+	}
+
 	return proto + a.IP + ":" + a.Port
 }
 
