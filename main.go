@@ -30,7 +30,7 @@ func (a *Application) Url() string {
 }
 
 type Pool struct {
-	Applications []Application `toml:applications`
+	Applications []Application
 	index        int
 }
 
@@ -72,11 +72,17 @@ func universalHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(resp.StatusCode)
 		w.Write(body)
-	} else {
-		w.WriteHeader(http.StatusOK)
+
+		fmt.Fprintf(w, "Handled: %s", r.URL.Path)
+		return
 	}
 
-	fmt.Fprintf(w, "Handled: %s", r.URL.Path)
+	// TODO: Write logic for post
+	if r.Method == "POST" {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Handled: %s", r.URL.Path)
+		return
+	}
 }
 
 func main() {
