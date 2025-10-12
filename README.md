@@ -2,6 +2,12 @@
 
 Load balancer for HTTP requests using round robin algorithm.
 
+## Demo
+
+<img width="1896" height="1027" alt="2025-10-12_13-44" src="https://github.com/user-attachments/assets/54f67497-d368-41b8-b1fe-088a5003f170" />
+
+The load balancer is responding to requests and routing them to two different FastAPI servers and then returning their responses.
+
 ### Initial Ideas
 
 I feel like you could either A. send a request to ask for what server to use or B. send all traffic to the load balancer, and the LB acts like a relay. For output, A. An IP address of the server to talk to or B. the result that was expected.
