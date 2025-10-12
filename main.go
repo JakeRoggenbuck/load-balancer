@@ -49,7 +49,7 @@ func universalHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received request: %s %s\n", r.Method, r.URL.Path)
 
 	app := POOL.GetApplication()
-	fmt.Println(app)
+	fmt.Println("Using application:", app)
 
 	if r.Method == "GET" {
 		resource := app.Url() + r.URL.Path
@@ -72,9 +72,10 @@ func universalHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(resp.StatusCode)
 		w.Write(body)
+	} else {
+		w.WriteHeader(http.StatusOK)
 	}
 
-	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, "Handled: %s", r.URL.Path)
 }
 
