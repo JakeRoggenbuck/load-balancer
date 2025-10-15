@@ -1,3 +1,5 @@
+cache = true
+
 [[applications]]
 alive = true
 ip = "127.0.0.1"
