@@ -81,10 +81,36 @@ func universalHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: Write logic for post
 	if r.Method == "POST" {
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "Handled: %s", r.URL.Path)
+		resource := app.Url() + r.URL.Path
+		fmt.Printf("Calling POST \"%v\"\n", resource)
+
+		// Forward the POST request with body
+		resp, err := http.Post(resource, r.Header.Get("Content-Type"), r.Body)
+		if err != nil {
+			fmt.Println("Error:", err)
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Read response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println("Error reading body:", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		// Copy response headers
+		for key, values := range resp.Header {
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+
+		w.WriteHeader(resp.StatusCode)
+		w.Write(body)
 		return
 	}
 }
