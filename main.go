@@ -40,8 +40,8 @@ func (a *Application) Url() string {
 type Pool struct {
 	Applications []Application
 	index        int
-	Cache        bool // Enable/disable caching from config
-	CacheSize    int  // Cache capacity from config
+	Cache        bool
+	CacheSize    int
 }
 
 func (p *Pool) GetApplication() Application {
@@ -51,7 +51,6 @@ func (p *Pool) GetApplication() Application {
 	return app
 }
 
-// CachedResponse stores the response data with expiry
 type CachedResponse struct {
 	StatusCode int
 	Body       []byte
@@ -59,18 +58,15 @@ type CachedResponse struct {
 	ExpiresAt  time.Time
 }
 
-// IsExpired checks if the cached response has expired
 func (c *CachedResponse) IsExpired() bool {
 	return time.Now().After(c.ExpiresAt)
 }
 
-// hashKey creates a cache key from the request path
 func hashKey(path string) string {
 	hash := sha256.Sum256([]byte(path))
 	return hex.EncodeToString(hash[:])
 }
 
-// parseCacheControl extracts cache directives from Cache-Control header
 func parseCacheControl(header string) (maxAge int, noCache bool, noStore bool) {
 	directives := strings.Split(header, ",")
 	for _, directive := range directives {
@@ -90,190 +86,217 @@ func parseCacheControl(header string) (maxAge int, noCache bool, noStore bool) {
 	return
 }
 
-// shouldCache determines if a request should use caching based on headers
 func shouldCache(r *http.Request) (bool, int) {
 	if !POOL.Cache {
 		return false, 0
 	}
 
-	// Check client's Cache-Control header
 	cacheControl := r.Header.Get("Cache-Control")
 	if cacheControl != "" {
 		maxAge, noCache, noStore := parseCacheControl(cacheControl)
-
-		// no-store means don't cache at all
 		if noStore || noCache {
 			return false, 0
 		}
-
-		// Return max-age if specified
 		if maxAge > 0 {
 			return true, maxAge
 		}
 	}
 
-	// Check for Pragma: no-cache (legacy HTTP/1.0)
 	if r.Header.Get("Pragma") == "no-cache" {
 		return false, 0
 	}
 
-	// Default: cache with no expiry (or you can set a default like 300 seconds)
 	return true, 0
+}
+
+func getCachedResponse(cacheKey string, maxAge int) (*CachedResponse, bool) {
+	cachedData := cache.Get(cacheKey)
+	if cachedData == nil {
+		return nil, false
+	}
+
+	cached := cachedData.(*CachedResponse)
+	if cached.IsExpired() {
+		fmt.Println("Cache EXPIRED")
+		cache.Remove(cacheKey)
+		return nil, false
+	}
+
+	return cached, true
+}
+
+func writeCachedResponse(w http.ResponseWriter, cached *CachedResponse, maxAge int) {
+	for key, values := range cached.Headers {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.Header().Set("X-Cache", "HIT")
+	age := int(time.Since(cached.ExpiresAt.Add(-time.Duration(maxAge) * time.Second)).Seconds())
+	w.Header().Set("Age", fmt.Sprintf("%d", age))
+	w.WriteHeader(cached.StatusCode)
+	w.Write(cached.Body)
+}
+
+func fetchFromBackend(resource string) (*http.Response, []byte, error) {
+	resp, err := http.Get(resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return resp, nil, err
+	}
+
+	return resp, body, nil
+}
+
+func determineMaxAge(backendResp *http.Response, clientMaxAge int) (int, bool) {
+	backendCacheControl := backendResp.Header.Get("Cache-Control")
+	if backendCacheControl == "" {
+		return clientMaxAge, true
+	}
+
+	backendMaxAge, backendNoCache, backendNoStore := parseCacheControl(backendCacheControl)
+	if backendNoStore || backendNoCache {
+		return 0, false
+	}
+
+	if backendMaxAge > 0 && clientMaxAge == 0 {
+		return backendMaxAge, true
+	}
+
+	return clientMaxAge, true
+}
+
+func cacheResponse(cacheKey string, statusCode int, body []byte, headers http.Header, maxAge int) {
+	var expiresAt time.Time
+	if maxAge > 0 {
+		expiresAt = time.Now().Add(time.Duration(maxAge) * time.Second)
+		fmt.Printf("Caching response for %d seconds\n", maxAge)
+	} else {
+		expiresAt = time.Now().Add(time.Hour * 24 * 365)
+		fmt.Println("Caching response indefinitely")
+	}
+
+	cachedResp := &CachedResponse{
+		StatusCode: statusCode,
+		Body:       body,
+		Headers:    headers.Clone(),
+		ExpiresAt:  expiresAt,
+	}
+	cache.Put(cacheKey, cachedResp)
+}
+
+func writeResponse(w http.ResponseWriter, statusCode int, body []byte, headers http.Header, cacheStatus string) {
+	for key, values := range headers {
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.Header().Set("X-Cache", cacheStatus)
+	w.WriteHeader(statusCode)
+	w.Write(body)
+}
+
+func handleGetRequest(w http.ResponseWriter, r *http.Request) {
+	useCache, maxAge := shouldCache(r)
+	cacheKey := hashKey(r.URL.Path)
+
+	// Try to serve from cache
+	if useCache {
+		if cached, found := getCachedResponse(cacheKey, maxAge); found {
+			fmt.Println("Cache HIT for:", r.URL.Path)
+			writeCachedResponse(w, cached, maxAge)
+			return
+		}
+		fmt.Println("Cache MISS for:", r.URL.Path)
+	} else {
+		fmt.Println("Cache BYPASSED for:", r.URL.Path)
+	}
+
+	// Fetch from backend
+	app := POOL.GetApplication()
+	fmt.Println("Using application:", app)
+	resource := app.Url() + r.URL.Path
+	fmt.Printf("Calling \"%v\"\n", resource)
+
+	resp, body, err := fetchFromBackend(resource)
+	if err != nil {
+		fmt.Println("Error:", err)
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+
+	// Determine final max-age considering backend headers
+	finalMaxAge, shouldCacheResponse := determineMaxAge(resp, maxAge)
+	useCache = useCache && shouldCacheResponse
+
+	// Cache the response if applicable
+	if useCache && resp.StatusCode == http.StatusOK {
+		cacheResponse(cacheKey, resp.StatusCode, body, resp.Header, finalMaxAge)
+		fmt.Println("Cached response for:", r.URL.Path)
+	}
+
+	writeResponse(w, resp.StatusCode, body, resp.Header, "MISS")
+}
+
+func handlePostRequest(w http.ResponseWriter, r *http.Request) {
+	app := POOL.GetApplication()
+	fmt.Println("Using application:", app)
+	resource := app.Url() + r.URL.Path
+	fmt.Printf("Calling POST \"%v\"\n", resource)
+
+	resp, err := http.Post(resource, r.Header.Get("Content-Type"), r.Body)
+	if err != nil {
+		fmt.Println("Error:", err)
+		w.WriteHeader(http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading body:", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	writeResponse(w, resp.StatusCode, body, resp.Header, "N/A")
 }
 
 func universalHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("Received request: %s %s\n", r.Method, r.URL.Path)
 
-	if r.Method == "GET" {
-		useCache, maxAge := shouldCache(r)
-		cacheKey := hashKey(r.URL.Path)
-
-		// Check cache if caching is allowed
-		if useCache {
-			if cachedData := cache.Get(cacheKey); cachedData != nil {
-				cached := cachedData.(*CachedResponse)
-
-				// Check if cached response has expired
-				if !cached.IsExpired() {
-					fmt.Println("Cache HIT for:", r.URL.Path)
-
-					// Write cached headers
-					for key, values := range cached.Headers {
-						for _, value := range values {
-							w.Header().Add(key, value)
-						}
-					}
-					w.Header().Set("X-Cache", "HIT")
-					w.Header().Set("Age", fmt.Sprintf("%d", int(time.Since(cached.ExpiresAt.Add(-time.Duration(maxAge)*time.Second)).Seconds())))
-					w.WriteHeader(cached.StatusCode)
-					w.Write(cached.Body)
-					return
-				} else {
-					fmt.Println("Cache EXPIRED for:", r.URL.Path)
-					// Remove expired entry
-					cache.Remove(cacheKey)
-				}
-			}
-			fmt.Println("Cache MISS for:", r.URL.Path)
-		} else {
-			fmt.Println("Cache BYPASSED for:", r.URL.Path)
-		}
-
-		// Cache miss, expired, or caching disabled - fetch from backend
-		app := POOL.GetApplication()
-		fmt.Println("Using application:", app)
-		resource := app.Url() + r.URL.Path
-		fmt.Printf("Calling \"%v\"\n", resource)
-
-		resp, err := http.Get(resource)
-		if err != nil {
-			fmt.Println("Error:", err)
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Println("Error reading body:", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Check backend's Cache-Control header for max-age
-		backendCacheControl := resp.Header.Get("Cache-Control")
-		if backendCacheControl != "" {
-			backendMaxAge, backendNoCache, backendNoStore := parseCacheControl(backendCacheControl)
-			if backendNoStore || backendNoCache {
-				useCache = false
-			} else if backendMaxAge > 0 && maxAge == 0 {
-				maxAge = backendMaxAge
-			}
-		}
-
-		// Store in cache if enabled and response is successful
-		if useCache && resp.StatusCode == http.StatusOK {
-			var expiresAt time.Time
-			if maxAge > 0 {
-				expiresAt = time.Now().Add(time.Duration(maxAge) * time.Second)
-				fmt.Printf("Caching response for %d seconds\n", maxAge)
-			} else {
-				expiresAt = time.Now().Add(time.Hour * 24 * 365) // Far future if no expiry
-				fmt.Println("Caching response indefinitely")
-			}
-
-			cachedResp := &CachedResponse{
-				StatusCode: resp.StatusCode,
-				Body:       body,
-				Headers:    resp.Header.Clone(),
-				ExpiresAt:  expiresAt,
-			}
-			cache.Put(cacheKey, cachedResp)
-			fmt.Println("Cached response for:", r.URL.Path)
-		}
-
-		// Copy response headers
-		for key, values := range resp.Header {
-			for _, value := range values {
-				w.Header().Add(key, value)
-			}
-		}
-		w.Header().Set("X-Cache", "MISS")
-		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
-		return
+	switch r.Method {
+	case "GET":
+		handleGetRequest(w, r)
+	case "POST":
+		handlePostRequest(w, r)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
-
-	if r.Method == "POST" {
-		app := POOL.GetApplication()
-		fmt.Println("Using application:", app)
-		resource := app.Url() + r.URL.Path
-		fmt.Printf("Calling POST \"%v\"\n", resource)
-
-		resp, err := http.Post(resource, r.Header.Get("Content-Type"), r.Body)
-		if err != nil {
-			fmt.Println("Error:", err)
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			fmt.Println("Error reading body:", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		// Copy response headers
-		for key, values := range resp.Header {
-			for _, value := range values {
-				w.Header().Add(key, value)
-			}
-		}
-		w.WriteHeader(resp.StatusCode)
-		w.Write(body)
-		return
-	}
-
-	// Method not supported
-	w.WriteHeader(http.StatusMethodNotAllowed)
 }
 
-func main() {
+func loadConfig() error {
 	content, err := os.ReadFile("applications.toml")
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if _, err := toml.Decode(string(content), &POOL); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	// Initialize cache
+	return nil
+}
+
+func initializeCache() {
 	cacheSize := POOL.CacheSize
 	if cacheSize == 0 {
-		cacheSize = 100 // Default cache size
+		cacheSize = 100
 	}
 	cache = NewLRUCache(cacheSize)
 
@@ -282,6 +305,14 @@ func main() {
 	} else {
 		fmt.Println("Cache disabled")
 	}
+}
+
+func main() {
+	if err := loadConfig(); err != nil {
+		log.Fatal(err)
+	}
+
+	initializeCache()
 
 	http.HandleFunc("/", universalHandler)
 	fmt.Println("Load balancer listening on :8080")
