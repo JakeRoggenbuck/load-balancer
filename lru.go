@@ -99,3 +99,11 @@ func (lru *LRUCache) Display() {
 func (lru *LRUCache) Size() int {
 	return len(lru.cache)
 }
+
+// Remove removes a specific key from the cache
+func (lru *LRUCache) Remove(key string) {
+	if node, exists := lru.cache[key]; exists {
+		lru.removeNode(node)
+		delete(lru.cache, key)
+	}
+}
