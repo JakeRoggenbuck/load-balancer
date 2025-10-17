@@ -6,6 +6,12 @@
 
 Load balancer for HTTP requests using round robin algorithm written in Go.
 
+### Features
+
+- Add multiple services to route traffic to using toml infra-as-code
+- LRU Cache for get requests with cache control
+- Supports POST and GET routes (PUT, UPDATE, DELETE coming soon)
+
 ### Demo
 
 <img width="1896" height="1027" alt="2025-10-12_13-44" src="https://github.com/user-attachments/assets/54f67497-d368-41b8-b1fe-088a5003f170" />
